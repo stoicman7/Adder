@@ -343,6 +343,7 @@ class FriendAssistService : AccessibilityService() {
         return value in setOf(
             "add friend",
             "add as friend",
+            "ajouter",
             "ajouter un ami",
             "ajouter une amie",
             "ajouter comme ami",
