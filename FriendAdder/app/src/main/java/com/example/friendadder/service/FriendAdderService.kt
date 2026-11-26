@@ -23,16 +23,27 @@ class FriendAdderService : AccessibilityService(), ScreenGateway {
         engine = AutomationEngine(gateway = this).also { BotController.attach(it) }
     }
 
-    // Le moteur interroge l'écran lui-même : les événements ne sont pas nécessaires.
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
 
     override fun onInterrupt() = Unit
 
-    /** Volume bas = arrêt d'urgence, même quand Facebook est au premier plan. */
+    /**
+     * Volume + confirme une seule demande lorsque le bouton « Ajouter » a été
+     * détecté. Volume - arrête immédiatement la navigation.
+     */
     override fun onKeyEvent(event: KeyEvent): Boolean {
-        val running = engine?.isRunning == true
-        if (running && event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            if (event.action == KeyEvent.ACTION_DOWN) engine?.stop()
+        val current = engine ?: return false
+        if (!current.isRunning) return false
+
+        if (event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) current.stop()
+            return true
+        }
+
+        if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP && current.status.awaitingConfirmation) {
+            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                current.confirmPendingAdd()
+            }
             return true
         }
         return false
@@ -59,7 +70,7 @@ class FriendAdderService : AccessibilityService(), ScreenGateway {
             current = current.parent
             hops++
         }
-        return tapCenterOf(node) // repli par geste (Android 7+)
+        return tapCenterOf(node)
     }
 
     override fun scrollForward(node: AccessibilityNodeInfo): Boolean =

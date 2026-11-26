@@ -76,8 +76,11 @@ class MainActivity : AppCompatActivity() {
     private fun statusMessage(s: BotStatus): Int = when (s.state) {
         BotState.DISCONNECTED -> R.string.status_disconnected
         BotState.IDLE -> R.string.status_idle
-        BotState.RUNNING ->
-            if (s.waitingForFacebook) R.string.status_waiting_facebook else R.string.status_running
+        BotState.RUNNING -> when {
+            s.waitingForFacebook -> R.string.status_waiting_facebook
+            s.awaitingConfirmation -> R.string.status_waiting_confirmation
+            else -> R.string.status_running
+        }
         BotState.STOPPED -> when (s.stopReason) {
             StopReason.ADD_LIMIT_REACHED -> R.string.stop_add_limit
             StopReason.TOO_MANY_FAILURES -> R.string.stop_failures

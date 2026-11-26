@@ -8,6 +8,7 @@ data class BotStatus(
     val state: BotState = BotState.IDLE,
     val stopReason: StopReason? = null,
     val waitingForFacebook: Boolean = false,
+    val awaitingConfirmation: Boolean = false,
     val adds: Int = 0,
     val dialogs: Int = 0,
     val scrolls: Int = 0

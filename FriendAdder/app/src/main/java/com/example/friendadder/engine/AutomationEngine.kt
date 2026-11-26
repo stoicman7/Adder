@@ -9,11 +9,8 @@ import com.example.friendadder.core.StopReason
 import com.example.friendadder.core.TextMatcher
 
 /**
- * Machine à états : à chaque « tick » (délai aléatoire) elle lit l'écran puis fait UNE action :
- *   1. fenêtre d'erreur visible      -> clic sur OK
- *   2. bouton « Ajouter » visible    -> clic dessus
- *   3. sinon                         -> défilement
- * Tout s'exécute sur le thread principal.
+ * Navigation automatique, mais aucun ajout n'est envoyé sans une confirmation
+ * physique de l'utilisateur (touche Volume +).
  */
 class AutomationEngine(
     private val gateway: ScreenGateway,
@@ -23,9 +20,10 @@ class AutomationEngine(
     private val scanner = ScreenScanner(TextMatcher(config.labels))
     private val tick = Runnable { onTick() }
 
-    /** Positions déjà cliquées depuis le dernier défilement (évite un double clic = annulation). */
+    /** Boutons déjà confirmés depuis le dernier défilement. */
     private val clickedKeys = HashSet<String>()
     private var pendingAdd = false
+    private var pendingTarget: ButtonRef? = null
     private var consecutiveFailures = 0
     private var staleScrolls = 0
     private var lastScrollSignature: Int? = null
@@ -40,6 +38,7 @@ class AutomationEngine(
         if (isRunning) return
         clickedKeys.clear()
         pendingAdd = false
+        pendingTarget = null
         consecutiveFailures = 0
         staleScrolls = 0
         lastScrollSignature = null
@@ -50,13 +49,50 @@ class AutomationEngine(
     fun stop(reason: StopReason = StopReason.USER) {
         if (!isRunning) return
         handler.removeCallbacks(tick)
-        publish(status.copy(state = BotState.STOPPED, stopReason = reason, waitingForFacebook = false))
+        pendingTarget = null
+        publish(
+            status.copy(
+                state = BotState.STOPPED,
+                stopReason = reason,
+                waitingForFacebook = false,
+                awaitingConfirmation = false
+            )
+        )
+    }
+
+    /**
+     * Envoie au maximum UNE demande, uniquement à la suite d'une pression
+     * volontaire sur Volume +. Le bouton est rescanné avant le clic.
+     */
+    fun confirmPendingAdd(): Boolean {
+        if (!isRunning || !status.awaitingConfirmation) return false
+        val target = pendingTarget ?: return false
+        val root = gateway.activeRoot() ?: return false
+        val packageName = root.packageName?.toString()
+        if (packageName !in config.facebookPackages) return false
+
+        val freshTarget = scanner.scan(root).addButtons.firstOrNull { it.key == target.key }
+            ?: run {
+                pendingTarget = null
+                publish(status.copy(awaitingConfirmation = false))
+                scheduleIn(config.idleDelayMs)
+                return false
+            }
+
+        if (!gateway.click(freshTarget.node)) return false
+
+        clickedKeys += freshTarget.key
+        pendingTarget = null
+        pendingAdd = true
+        publish(status.copy(awaitingConfirmation = false, adds = status.adds + 1))
+        scheduleIn(config.afterAddDelayMs)
+        return true
     }
 
     // ---------------------------------------------------------------- tick
 
     private fun onTick() {
-        if (!isRunning) return
+        if (!isRunning || status.awaitingConfirmation) return
 
         val root = gateway.activeRoot()
         val pkg = root?.packageName?.toString()
@@ -72,7 +108,8 @@ class AutomationEngine(
             handleErrorDialog(screen)
             return
         }
-        // Pas de fenêtre d'erreur : le clic précédent (s'il y en a un) a réussi.
+
+        // Le clic précédent n'a pas été suivi d'une fenêtre d'erreur.
         resolvePendingAdd(success = true)
         if (screen.addButtons.isNotEmpty()) handleAddButtons(screen) else scroll(screen)
     }
@@ -95,19 +132,16 @@ class AutomationEngine(
             stop(StopReason.ADD_LIMIT_REACHED)
             return
         }
+
         val target = screen.addButtons.firstOrNull { it.key !in clickedKeys }
         if (target == null) {
-            scroll(screen) // tous les boutons visibles sont déjà traités
+            scroll(screen)
             return
         }
-        clickedKeys += target.key
-        if (gateway.click(target.node)) {
-            pendingAdd = true
-            publish(status.copy(adds = status.adds + 1))
-            scheduleIn(config.afterAddDelayMs)
-        } else {
-            scheduleIn(config.afterDialogDelayMs) // on essaiera le bouton suivant
-        }
+
+        // Pause ici : aucun clic tant que l'utilisateur n'appuie pas sur Volume +.
+        pendingTarget = target
+        publish(status.copy(awaitingConfirmation = true))
     }
 
     private fun scroll(screen: ScreenSnapshot) {
@@ -117,6 +151,7 @@ class AutomationEngine(
             stop(StopReason.END_OF_LIST)
             return
         }
+
         val container = screen.scrollContainer
         if (container == null || !gateway.scrollForward(container)) gateway.swipeUp()
 
