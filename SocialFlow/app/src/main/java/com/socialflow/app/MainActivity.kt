@@ -133,7 +133,7 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
-            addView(content, ScrollView.LayoutParams(-1, -2))
+            addView(content)
         }
 
         // A vertical LinearLayout needs MATCH_PARENT width and a weighted height.
@@ -436,7 +436,7 @@ class MainActivity : Activity() {
             textSize = 12f
             setTextColor(white)
             setHintTextColor(muted)
-            singleLine = true
+            setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT
             setPadding(dp(13), 0, dp(13), 0)
             background = shape(raisedColor, 13, lineColor)
