@@ -9,6 +9,7 @@ import android.os.Build
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import androidx.annotation.RequiresApi
 import com.example.friendadder.core.BotConfig
 import com.example.friendadder.engine.AutomationEngine
@@ -19,76 +20,78 @@ class FriendAdderService : AccessibilityService(), ScreenGateway {
 
     private val config = BotConfig()
     private var engine: AutomationEngine? = null
-    private var floatingPanel: FloatingControlPanel? = null
+    private var panel: FloatingControlPanel? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        val newEngine = AutomationEngine(gateway = this, config = config)
+        engine = newEngine
+        BotController.attach(newEngine)
 
-        val automation = AutomationEngine(gateway = this, config = config)
-        engine = automation
-
-        floatingPanel = FloatingControlPanel(
+        panel = FloatingControlPanel(
             service = this,
-            onConfirm = { automation.confirmPendingAdd() },
-            onStop = { automation.stop() }
-        )
-
-        BotController.floatingListener = { status -> floatingPanel?.render(status) }
-        BotController.attach(automation)
-    }
-
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val packageName = event?.packageName?.toString() ?: return
-        if (packageName in config.facebookPackages) {
-            engine?.onScreenChanged()
+            onStart = { BotController.start() },
+            onStop = { BotController.stop() }
+        ).also {
+            BotController.floatingListener = it::render
+            it.show()
         }
     }
 
-    override fun onInterrupt() {
-        engine?.stop()
-    }
+    // Le moteur interroge l'écran lui-même : les événements ne sont pas nécessaires.
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
 
-    /**
-     * Volume + confirme une seule demande détectée.
-     * Volume - reste un arrêt d'urgence physique.
-     */
+    override fun onInterrupt() = Unit
+
+    /** Volume bas = arrêt d'urgence, même quand Facebook est au premier plan. */
     override fun onKeyEvent(event: KeyEvent): Boolean {
-        val current = engine ?: return false
-        if (!current.isRunning) return false
-
-        if (event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) current.stop()
-            return true
-        }
-
-        if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP && current.status.awaitingConfirmation) {
-            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-                current.confirmPendingAdd()
-            }
+        val running = engine?.isRunning == true
+        if (running && event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            if (event.action == KeyEvent.ACTION_DOWN) engine?.stop()
             return true
         }
         return false
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
-        engine?.stop()
-        BotController.floatingListener = null
-        BotController.detach()
-        floatingPanel?.remove()
-        floatingPanel = null
-        engine = null
+        teardown()
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
-        floatingPanel?.remove()
-        floatingPanel = null
+        teardown()
         super.onDestroy()
+    }
+
+    private fun teardown() {
+        engine?.stop()
+        panel?.remove()
+        panel = null
+        BotController.floatingListener = null
+        BotController.detach()
+        engine = null
     }
 
     // -------------------------------------------------------- ScreenGateway
 
-    override fun activeRoot(): AccessibilityNodeInfo? = rootInActiveWindow
+    /**
+     * Le panneau flottant est lui aussi une fenêtre : rootInActiveWindow peut donc désigner
+     * notre propre overlay. On cherche explicitement la fenêtre Facebook.
+     */
+    override fun activeRoot(): AccessibilityNodeInfo? {
+        val active = rootInActiveWindow
+        if (active != null && isFacebook(active)) return active
+        val facebookRoot = windows
+            .filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+            .sortedByDescending { it.layer }
+            .firstNotNullOfOrNull { window -> window.root?.takeIf { isFacebook(it) } }
+        return facebookRoot ?: active
+    }
+
+    private fun isFacebook(node: AccessibilityNodeInfo): Boolean {
+        val pkg = node.packageName?.toString() ?: return false
+        return pkg in config.facebookPackages
+    }
 
     override fun click(node: AccessibilityNodeInfo): Boolean {
         var current: AccessibilityNodeInfo? = node
@@ -100,7 +103,15 @@ class FriendAdderService : AccessibilityService(), ScreenGateway {
             current = current.parent
             hops++
         }
-        return tapCenterOf(node)
+        return false
+    }
+
+    override fun tap(node: AccessibilityNodeInfo): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
+        val r = Rect().also { node.getBoundsInScreen(it) }
+        if (r.isEmpty) return false
+        val path = Path().apply { moveTo(r.exactCenterX(), r.exactCenterY()) }
+        return dispatch(path, 60L)
     }
 
     override fun scrollForward(node: AccessibilityNodeInfo): Boolean =
@@ -119,16 +130,6 @@ class FriendAdderService : AccessibilityService(), ScreenGateway {
 
     override fun pressBack(): Boolean = performGlobalAction(GLOBAL_ACTION_BACK)
 
-    // --------------------------------------------------------------- gestes
-
-    private fun tapCenterOf(node: AccessibilityNodeInfo): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
-        val r = Rect().also { node.getBoundsInScreen(it) }
-        if (r.isEmpty) return false
-        val path = Path().apply { moveTo(r.exactCenterX(), r.exactCenterY()) }
-        return dispatch(path, 50L)
-    }
-
     @RequiresApi(Build.VERSION_CODES.N)
     private fun dispatch(path: Path, durationMs: Long): Boolean {
         val stroke = GestureDescription.StrokeDescription(path, 0L, durationMs)
@@ -137,6 +138,6 @@ class FriendAdderService : AccessibilityService(), ScreenGateway {
     }
 
     private companion object {
-        const val MAX_ANCESTOR_HOPS = 8
+        const val MAX_ANCESTOR_HOPS = 6
     }
 }

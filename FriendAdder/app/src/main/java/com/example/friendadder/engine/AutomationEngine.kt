@@ -2,6 +2,7 @@ package com.example.friendadder.engine
 
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import com.example.friendadder.core.BotConfig
 import com.example.friendadder.core.BotState
 import com.example.friendadder.core.BotStatus
@@ -9,8 +10,12 @@ import com.example.friendadder.core.StopReason
 import com.example.friendadder.core.TextMatcher
 
 /**
- * Navigation automatique avec une confirmation explicite pour CHAQUE demande.
- * La détection du libellé et du conteneur cliquable est faite par ScreenScanner.
+ * Machine à états 100 % automatique (aucune confirmation manuelle).
+ * À chaque « tick » (délai aléatoire) elle lit l'écran puis fait UNE action :
+ *   1. fenêtre d'erreur visible      -> clic sur OK
+ *   2. bouton « Ajouter » visible    -> clic dessus (puis vérification au tick suivant)
+ *   3. sinon                         -> défilement
+ * Tout s'exécute sur le thread principal.
  */
 class AutomationEngine(
     private val gateway: ScreenGateway,
@@ -20,10 +25,10 @@ class AutomationEngine(
     private val scanner = ScreenScanner(TextMatcher(config.labels))
     private val tick = Runnable { onTick() }
 
-    /** Boutons déjà confirmés depuis le dernier défilement. */
+    /** Boutons déjà traités depuis le dernier défilement (évite un double clic = annulation). */
     private val clickedKeys = HashSet<String>()
+    private var lastClickedKey: String? = null
     private var pendingAdd = false
-    private var pendingTarget: ButtonRef? = null
     private var consecutiveFailures = 0
     private var staleScrolls = 0
     private var lastScrollSignature: Int? = null
@@ -37,8 +42,8 @@ class AutomationEngine(
     fun start() {
         if (isRunning) return
         clickedKeys.clear()
+        lastClickedKey = null
         pendingAdd = false
-        pendingTarget = null
         consecutiveFailures = 0
         staleScrolls = 0
         lastScrollSignature = null
@@ -49,84 +54,21 @@ class AutomationEngine(
     fun stop(reason: StopReason = StopReason.USER) {
         if (!isRunning) return
         handler.removeCallbacks(tick)
-        pendingTarget = null
-        publish(
-            status.copy(
-                state = BotState.STOPPED,
-                stopReason = reason,
-                waitingForFacebook = false,
-                awaitingConfirmation = false,
-                detectedButtons = 0,
-                detectedLabel = null
-            )
-        )
-    }
-
-    /** Appelé par le bouton flottant CONFIRM ONE ou par Volume +. */
-    fun confirmPendingAdd(): Boolean {
-        if (!isRunning || !status.awaitingConfirmation) return false
-        val target = pendingTarget ?: return false
-        val root = gateway.activeRoot() ?: return false
-        if (root.packageName?.toString() !in config.facebookPackages) return false
-
-        val freshButtons = scanner.scan(root).addButtons
-        val freshTarget = freshButtons.firstOrNull { it.key == target.key }
-            ?: freshButtons.firstOrNull {
-                it.label.equals(target.label, ignoreCase = true) &&
-                    kotlin.math.abs(it.top - target.top) <= 12
-            }
-            ?: run {
-                pendingTarget = null
-                publish(status.copy(
-                    awaitingConfirmation = false,
-                    detectedButtons = freshButtons.size,
-                    detectedLabel = null
-                ))
-                scheduleIn(config.idleDelayMs)
-                return false
-            }
-
-        if (!gateway.click(freshTarget.node)) return false
-
-        clickedKeys += freshTarget.key
-        pendingTarget = null
-        pendingAdd = true
-        publish(status.copy(
-            awaitingConfirmation = false,
-            detectedButtons = 0,
-            detectedLabel = null,
-            adds = status.adds + 1
-        ))
-        scheduleIn(config.afterAddDelayMs)
-        return true
-    }
-
-    /** Accélère la lecture après une modification de l'interface Facebook. */
-    fun onScreenChanged() {
-        if (!isRunning || status.awaitingConfirmation) return
-        handler.removeCallbacks(tick)
-        handler.postDelayed(tick, SCREEN_CHANGE_DEBOUNCE_MS)
+        publish(status.copy(state = BotState.STOPPED, stopReason = reason, waitingForFacebook = false))
     }
 
     // ---------------------------------------------------------------- tick
 
     private fun onTick() {
-        if (!isRunning || status.awaitingConfirmation) return
+        if (!isRunning) return
 
         val root = gateway.activeRoot()
         val pkg = root?.packageName?.toString()
         if (root == null || pkg == null || pkg !in config.facebookPackages) {
-            if (!status.waitingForFacebook) {
-                publish(status.copy(
-                    waitingForFacebook = true,
-                    detectedButtons = 0,
-                    detectedLabel = null
-                ))
-            }
+            if (!status.waitingForFacebook) publish(status.copy(waitingForFacebook = true))
             scheduleIn(config.idleDelayMs)
             return
         }
-
         if (status.waitingForFacebook) publish(status.copy(waitingForFacebook = false))
 
         val screen = scanner.scan(root)
@@ -134,25 +76,19 @@ class AutomationEngine(
             handleErrorDialog(screen)
             return
         }
-
+        // Pas de fenêtre d'erreur : le clic précédent (s'il y en a un) a réussi.
         resolvePendingAdd(success = true)
-        if (screen.addButtons.isNotEmpty()) {
-            handleAddButtons(screen)
-        } else {
-            scroll(screen)
-        }
+        if (screen.addButtons.isNotEmpty()) handleAddButtons(screen) else scroll(screen)
     }
 
     private fun handleErrorDialog(screen: ScreenSnapshot) {
+        lastClickedKey = null
         resolvePendingAdd(success = false)
         val ok = screen.okButtons.firstOrNull()
-        if (ok == null || !gateway.click(ok)) gateway.pressBack()
-        publish(status.copy(
-            dialogs = status.dialogs + 1,
-            detectedButtons = screen.addButtons.size,
-            detectedLabel = null,
-            awaitingConfirmation = false
-        ))
+        val closed = ok != null && (gateway.click(ok) || gateway.tap(ok))
+        if (!closed) gateway.pressBack()
+        Log.d(TAG, "Fenêtre d'erreur détectée, fermée=$closed")
+        publish(status.copy(dialogs = status.dialogs + 1))
 
         if (consecutiveFailures >= config.maxConsecutiveFailures) {
             stop(StopReason.TOO_MANY_FAILURES)
@@ -166,20 +102,39 @@ class AutomationEngine(
             stop(StopReason.ADD_LIMIT_REACHED)
             return
         }
+        verifyLastClick(screen)
 
         val target = screen.addButtons.firstOrNull { it.key !in clickedKeys }
         if (target == null) {
-            scroll(screen)
+            scroll(screen) // tous les boutons visibles sont déjà traités
             return
         }
+        clickedKeys += target.key
 
-        // Pause : le bouton flottant indique le libellé détecté et attend CONFIRM ONE.
-        pendingTarget = target
-        publish(status.copy(
-            awaitingConfirmation = true,
-            detectedButtons = screen.addButtons.size,
-            detectedLabel = target.label
-        ))
+        val clicked = gateway.click(target.node) || gateway.tap(target.node)
+        Log.d(TAG, "Clic sur « Ajouter » (${target.key}) -> $clicked")
+        if (clicked) {
+            lastClickedKey = target.key
+            pendingAdd = true
+            publish(status.copy(adds = status.adds + 1))
+            scheduleIn(config.afterAddDelayMs)
+        } else {
+            publish(status.copy(failedClicks = status.failedClicks + 1))
+            scheduleIn(config.afterDialogDelayMs) // on passe au bouton suivant
+        }
+    }
+
+    /**
+     * Si le bouton cliqué affiche toujours « Ajouter », le clic n'a eu aucun effet
+     * (ACTION_CLICK « accepté » mais ignoré par Facebook) : second essai par geste.
+     */
+    private fun verifyLastClick(screen: ScreenSnapshot) {
+        val key = lastClickedKey ?: return
+        lastClickedKey = null
+        val stillThere = screen.addButtons.firstOrNull { it.key == key } ?: return
+        val retried = gateway.tap(stillThere.node)
+        Log.d(TAG, "Le bouton est toujours là : nouvel essai par geste -> $retried")
+        publish(status.copy(failedClicks = status.failedClicks + 1))
     }
 
     private fun scroll(screen: ScreenSnapshot) {
@@ -189,17 +144,17 @@ class AutomationEngine(
             stop(StopReason.END_OF_LIST)
             return
         }
-
         val container = screen.scrollContainer
-        if (container == null || !gateway.scrollForward(container)) gateway.swipeUp()
+        val viaAction = { container != null && gateway.scrollForward(container) }
+        // Si le défilement « sémantique » n'a rien changé, on bascule sur un vrai balayage.
+        val scrolled =
+            if (staleScrolls == 0) viaAction() || gateway.swipeUp()
+            else gateway.swipeUp() || viaAction()
+        Log.d(TAG, "Défilement -> $scrolled (stale=$staleScrolls)")
 
         clickedKeys.clear()
-        publish(status.copy(
-            scrolls = status.scrolls + 1,
-            detectedButtons = screen.addButtons.size,
-            detectedLabel = null,
-            awaitingConfirmation = false
-        ))
+        lastClickedKey = null
+        publish(status.copy(scrolls = status.scrolls + 1))
         scheduleIn(config.afterScrollDelayMs)
     }
 
@@ -224,6 +179,6 @@ class AutomationEngine(
     }
 
     private companion object {
-        const val SCREEN_CHANGE_DEBOUNCE_MS = 250L
+        const val TAG = "FriendAdder"
     }
 }

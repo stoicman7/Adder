@@ -3,7 +3,7 @@ package com.example.friendadder.engine
 import com.example.friendadder.core.BotState
 import com.example.friendadder.core.BotStatus
 
-/** Pont entre l'UI principale, le panneau flottant et le service d'accessibilité. */
+/** Pont entre l'UI / le panneau flottant et le service d'accessibilité (même processus, thread principal). */
 object BotController {
     private var engine: AutomationEngine? = null
 
@@ -13,11 +13,8 @@ object BotController {
             value?.invoke(currentStatus())
         }
 
+    /** Écouteur du panneau flottant (géré par le service). */
     var floatingListener: ((BotStatus) -> Unit)? = null
-        set(value) {
-            field = value
-            value?.invoke(currentStatus())
-        }
 
     val isServiceConnected: Boolean get() = engine != null
 
@@ -28,19 +25,21 @@ object BotController {
             floatingListener?.invoke(status)
         }
         listener?.invoke(engine.status)
-        floatingListener?.invoke(engine.status)
     }
 
     fun detach() {
         engine?.onStatusChanged = null
         engine = null
         listener?.invoke(currentStatus())
-        floatingListener?.invoke(currentStatus())
     }
 
-    fun start() = engine?.start()
-    fun stop() = engine?.stop()
-    fun confirmPendingAdd(): Boolean = engine?.confirmPendingAdd() == true
+    fun start() {
+        engine?.start()
+    }
+
+    fun stop() {
+        engine?.stop()
+    }
 
     fun currentStatus(): BotStatus =
         engine?.status ?: BotStatus(state = BotState.DISCONNECTED)

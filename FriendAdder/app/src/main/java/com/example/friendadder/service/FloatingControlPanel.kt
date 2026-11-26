@@ -1,184 +1,135 @@
 package com.example.friendadder.service
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Context
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
-import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.annotation.RequiresApi
+import com.example.friendadder.R
 import com.example.friendadder.core.BotState
 import com.example.friendadder.core.BotStatus
+import com.example.friendadder.engine.BotController
 
 /**
- * Compacte commande flottante de l'accessibility service.
- * TYPE_ACCESSIBILITY_OVERLAY ne demande pas l'autorisation « afficher par-dessus ».
+ * Petit panneau Démarrer/Stop déplaçable, affiché PAR-DESSUS Facebook.
+ * Utilise TYPE_ACCESSIBILITY_OVERLAY : aucune permission « affichage par-dessus » n'est requise.
+ * Disponible à partir d'Android 5.1 (API 22) ; sur Android 5.0, utiliser l'app ou la touche volume bas.
  */
 class FloatingControlPanel(
     private val service: AccessibilityService,
-    private val onConfirm: () -> Unit,
+    private val onStart: () -> Unit,
     private val onStop: () -> Unit
 ) {
-    private val windowManager =
-        service.getSystemService(AccessibilityService.WINDOW_SERVICE) as WindowManager
+    private val windowManager = service.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    private var container: LinearLayout? = null
+    private var statsView: TextView? = null
+    private var toggleView: TextView? = null
+    private var running = false
 
-    private var panel: LinearLayout? = null
-    private lateinit var statusText: TextView
-    private lateinit var statsText: TextView
-    private lateinit var confirmButton: Button
-    private lateinit var stopButton: Button
-
-    fun render(status: BotStatus) {
-        if (status.state == BotState.RUNNING) show()
-        val root = panel ?: return
-
-        statusText.text = when {
-            status.state != BotState.RUNNING -> "STOPPED"
-            status.waitingForFacebook -> "WAITING FOR FACEBOOK"
-            status.awaitingConfirmation ->
-                "FOUND: « ${status.detectedLabel ?: "Ajouter"} »"
-            else -> "SCANNING FOR « AJOUTER »"
-        }
-
-        statsText.text =
-            "CONFIRMED  ${status.adds}      FOUND  ${status.detectedButtons}\n" +
-            "ERRORS  ${status.dialogs}          SCROLLS  ${status.scrolls}"
-
-        confirmButton.isEnabled =
-            status.state == BotState.RUNNING && status.awaitingConfirmation
-        confirmButton.alpha = if (confirmButton.isEnabled) 1f else 0.45f
-        stopButton.isEnabled = status.state == BotState.RUNNING
-        stopButton.alpha = if (stopButton.isEnabled) 1f else 0.45f
-
-        // Keep the view attached while stopped so the final counters remain visible.
-        root.contentDescription = statusText.text
-    }
-
-    private fun show() {
-        if (panel != null) return
-
-        val root = LinearLayout(service).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = roundedBackground(BG, CRIMSON, dp(16).toFloat())
-            elevation = dp(10).toFloat()
-        }
-
-        val title = TextView(service).apply {
-            text = "EAGLE ASSIST  •  LIVE"
-            setTextColor(WHITE)
-            textSize = 13f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-        }
-        root.addView(title, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        ))
-
-        statusText = TextView(service).apply {
-            text = "SCANNING FOR « AJOUTER »"
-            setTextColor(CRIMSON_LIGHT)
-            textSize = 12f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setPadding(0, dp(9), 0, dp(8))
-        }
-        root.addView(statusText)
-
-        statsText = TextView(service).apply {
-            setTextColor(WHITE)
-            textSize = 12f
-            setLineSpacing(dp(3).toFloat(), 1f)
-            setPadding(0, 0, 0, dp(10))
-        }
-        root.addView(statsText)
-
-        val actions = LinearLayout(service).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-
-        confirmButton = Button(service).apply {
-            text = "CONFIRM ONE"
-            isAllCaps = false
-            textSize = 11f
-            setTextColor(WHITE)
-            background = roundedBackground(CRIMSON, CRIMSON_LIGHT, dp(9).toFloat())
-            setPadding(dp(7), 0, dp(7), 0)
-            setOnClickListener { onConfirm() }
-        }
-        actions.addView(confirmButton, LinearLayout.LayoutParams(0, dp(44), 1f))
-
-        val gap = android.view.View(service)
-        actions.addView(gap, LinearLayout.LayoutParams(dp(8), 1))
-
-        stopButton = Button(service).apply {
-            text = "STOP"
-            isAllCaps = false
-            textSize = 11f
-            setTextColor(WHITE)
-            background = roundedBackground(STOP_RED, STOP_RED, dp(9).toFloat())
-            setPadding(dp(7), 0, dp(7), 0)
-            setOnClickListener { onStop() }
-        }
-        actions.addView(stopButton, LinearLayout.LayoutParams(0, dp(44), 0.72f))
-        root.addView(actions)
-
-        val type = if (Build.VERSION.SDK_INT >= 22) {
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
-
-        val params = WindowManager.LayoutParams(
-            dp(286),
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.END
-            x = dp(12)
-            y = dp(92)
-        }
-
-        try {
-            windowManager.addView(root, params)
-            panel = root
-        } catch (_: Exception) {
-            panel = null
-        }
+    fun show() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP_MR1 || container != null) return
+        addOverlay()
     }
 
     fun remove() {
-        val current = panel ?: return
-        try {
-            windowManager.removeView(current)
-        } catch (_: Exception) {
-            // The Android window may already have been removed by the system.
-        }
-        panel = null
+        container?.let { runCatching { windowManager.removeView(it) } }
+        container = null
     }
 
-    private fun roundedBackground(color: Int, stroke: Int, radius: Float) =
-        GradientDrawable().apply {
-            setColor(color)
-            cornerRadius = radius
-            setStroke(dp(1), stroke)
+    fun render(status: BotStatus) {
+        running = status.state == BotState.RUNNING
+        statsView?.text = service.getString(R.string.panel_stats, status.adds, status.failedClicks)
+        toggleView?.apply {
+            setText(if (running) R.string.panel_stop else R.string.panel_start)
+            background = rounded(if (running) COLOR_STOP else COLOR_START, dp(18))
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.LOLLIPOP_MR1)
+    private fun addOverlay() {
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = dp(8)
+            y = dp(140)
         }
 
-    private fun dp(value: Int): Int =
-        (value * service.resources.displayMetrics.density).toInt()
+        val stats = TextView(service).apply {
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setOnTouchListener(DragListener(params)) // la zone de texte sert de poignée
+        }
+        val toggle = TextView(service).apply {
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            setOnClickListener { if (running) onStop() else onStart() }
+        }
+        val row = LinearLayout(service).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(COLOR_PANEL, dp(24))
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            addView(stats)
+            addView(toggle)
+        }
+
+        windowManager.addView(row, params)
+        container = row
+        statsView = stats
+        toggleView = toggle
+        render(BotController.currentStatus())
+    }
+
+    private inner class DragListener(private val params: WindowManager.LayoutParams) : View.OnTouchListener {
+        private var startX = 0
+        private var startY = 0
+        private var touchX = 0f
+        private var touchY = 0f
+
+        override fun onTouch(v: View, event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startX = params.x; startY = params.y
+                    touchX = event.rawX; touchY = event.rawY
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    params.x = startX + (event.rawX - touchX).toInt()
+                    params.y = startY + (event.rawY - touchY).toInt()
+                    container?.let { windowManager.updateViewLayout(it, params) }
+                }
+            }
+            return true
+        }
+    }
+
+    private fun rounded(color: Int, radiusPx: Int) = GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = radiusPx.toFloat()
+    }
+
+    private fun dp(value: Int): Int = (value * service.resources.displayMetrics.density).toInt()
 
     private companion object {
-        const val BG = 0xFF111114.toInt()
-        const val CRIMSON = 0xFF950606.toInt()
-        const val CRIMSON_LIGHT = 0xFFFF5555.toInt()
-        const val STOP_RED = 0xFF6E0808.toInt()
-        const val WHITE = Color.WHITE
+        val COLOR_PANEL = 0xCC202124.toInt()
+        val COLOR_START = 0xFF2E7D32.toInt()
+        val COLOR_STOP = 0xFFC62828.toInt()
     }
 }
