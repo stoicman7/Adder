@@ -9,8 +9,8 @@ import com.example.friendadder.core.StopReason
 import com.example.friendadder.core.TextMatcher
 
 /**
- * Navigation automatique, mais aucun ajout n'est envoyé sans une confirmation
- * physique de l'utilisateur (touche Volume +).
+ * Navigation automatique avec une confirmation explicite pour CHAQUE demande.
+ * La détection du libellé et du conteneur cliquable est faite par ScreenScanner.
  */
 class AutomationEngine(
     private val gateway: ScreenGateway,
@@ -55,26 +55,33 @@ class AutomationEngine(
                 state = BotState.STOPPED,
                 stopReason = reason,
                 waitingForFacebook = false,
-                awaitingConfirmation = false
+                awaitingConfirmation = false,
+                detectedButtons = 0,
+                detectedLabel = null
             )
         )
     }
 
-    /**
-     * Envoie au maximum UNE demande, uniquement à la suite d'une pression
-     * volontaire sur Volume +. Le bouton est rescanné avant le clic.
-     */
+    /** Appelé par le bouton flottant CONFIRM ONE ou par Volume +. */
     fun confirmPendingAdd(): Boolean {
         if (!isRunning || !status.awaitingConfirmation) return false
         val target = pendingTarget ?: return false
         val root = gateway.activeRoot() ?: return false
-        val packageName = root.packageName?.toString()
-        if (packageName !in config.facebookPackages) return false
+        if (root.packageName?.toString() !in config.facebookPackages) return false
 
-        val freshTarget = scanner.scan(root).addButtons.firstOrNull { it.key == target.key }
+        val freshButtons = scanner.scan(root).addButtons
+        val freshTarget = freshButtons.firstOrNull { it.key == target.key }
+            ?: freshButtons.firstOrNull {
+                it.label.equals(target.label, ignoreCase = true) &&
+                    kotlin.math.abs(it.top - target.top) <= 12
+            }
             ?: run {
                 pendingTarget = null
-                publish(status.copy(awaitingConfirmation = false))
+                publish(status.copy(
+                    awaitingConfirmation = false,
+                    detectedButtons = freshButtons.size,
+                    detectedLabel = null
+                ))
                 scheduleIn(config.idleDelayMs)
                 return false
             }
@@ -84,9 +91,21 @@ class AutomationEngine(
         clickedKeys += freshTarget.key
         pendingTarget = null
         pendingAdd = true
-        publish(status.copy(awaitingConfirmation = false, adds = status.adds + 1))
+        publish(status.copy(
+            awaitingConfirmation = false,
+            detectedButtons = 0,
+            detectedLabel = null,
+            adds = status.adds + 1
+        ))
         scheduleIn(config.afterAddDelayMs)
         return true
+    }
+
+    /** Accélère la lecture après une modification de l'interface Facebook. */
+    fun onScreenChanged() {
+        if (!isRunning || status.awaitingConfirmation) return
+        handler.removeCallbacks(tick)
+        handler.postDelayed(tick, SCREEN_CHANGE_DEBOUNCE_MS)
     }
 
     // ---------------------------------------------------------------- tick
@@ -97,10 +116,17 @@ class AutomationEngine(
         val root = gateway.activeRoot()
         val pkg = root?.packageName?.toString()
         if (root == null || pkg == null || pkg !in config.facebookPackages) {
-            if (!status.waitingForFacebook) publish(status.copy(waitingForFacebook = true))
+            if (!status.waitingForFacebook) {
+                publish(status.copy(
+                    waitingForFacebook = true,
+                    detectedButtons = 0,
+                    detectedLabel = null
+                ))
+            }
             scheduleIn(config.idleDelayMs)
             return
         }
+
         if (status.waitingForFacebook) publish(status.copy(waitingForFacebook = false))
 
         val screen = scanner.scan(root)
@@ -109,16 +135,24 @@ class AutomationEngine(
             return
         }
 
-        // Le clic précédent n'a pas été suivi d'une fenêtre d'erreur.
         resolvePendingAdd(success = true)
-        if (screen.addButtons.isNotEmpty()) handleAddButtons(screen) else scroll(screen)
+        if (screen.addButtons.isNotEmpty()) {
+            handleAddButtons(screen)
+        } else {
+            scroll(screen)
+        }
     }
 
     private fun handleErrorDialog(screen: ScreenSnapshot) {
         resolvePendingAdd(success = false)
         val ok = screen.okButtons.firstOrNull()
         if (ok == null || !gateway.click(ok)) gateway.pressBack()
-        publish(status.copy(dialogs = status.dialogs + 1))
+        publish(status.copy(
+            dialogs = status.dialogs + 1,
+            detectedButtons = screen.addButtons.size,
+            detectedLabel = null,
+            awaitingConfirmation = false
+        ))
 
         if (consecutiveFailures >= config.maxConsecutiveFailures) {
             stop(StopReason.TOO_MANY_FAILURES)
@@ -139,9 +173,13 @@ class AutomationEngine(
             return
         }
 
-        // Pause ici : aucun clic tant que l'utilisateur n'appuie pas sur Volume +.
+        // Pause : le bouton flottant indique le libellé détecté et attend CONFIRM ONE.
         pendingTarget = target
-        publish(status.copy(awaitingConfirmation = true))
+        publish(status.copy(
+            awaitingConfirmation = true,
+            detectedButtons = screen.addButtons.size,
+            detectedLabel = target.label
+        ))
     }
 
     private fun scroll(screen: ScreenSnapshot) {
@@ -156,7 +194,12 @@ class AutomationEngine(
         if (container == null || !gateway.scrollForward(container)) gateway.swipeUp()
 
         clickedKeys.clear()
-        publish(status.copy(scrolls = status.scrolls + 1))
+        publish(status.copy(
+            scrolls = status.scrolls + 1,
+            detectedButtons = screen.addButtons.size,
+            detectedLabel = null,
+            awaitingConfirmation = false
+        ))
         scheduleIn(config.afterScrollDelayMs)
     }
 
@@ -178,5 +221,9 @@ class AutomationEngine(
     private fun publish(newStatus: BotStatus) {
         status = newStatus
         onStatusChanged?.invoke(newStatus)
+    }
+
+    private companion object {
+        const val SCREEN_CHANGE_DEBOUNCE_MS = 250L
     }
 }

@@ -10,26 +10,47 @@ import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.annotation.RequiresApi
+import com.example.friendadder.core.BotConfig
 import com.example.friendadder.engine.AutomationEngine
 import com.example.friendadder.engine.BotController
 import com.example.friendadder.engine.ScreenGateway
 
 class FriendAdderService : AccessibilityService(), ScreenGateway {
 
+    private val config = BotConfig()
     private var engine: AutomationEngine? = null
+    private var floatingPanel: FloatingControlPanel? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        engine = AutomationEngine(gateway = this).also { BotController.attach(it) }
+
+        val automation = AutomationEngine(gateway = this, config = config)
+        engine = automation
+
+        floatingPanel = FloatingControlPanel(
+            service = this,
+            onConfirm = { automation.confirmPendingAdd() },
+            onStop = { automation.stop() }
+        )
+
+        BotController.floatingListener = { status -> floatingPanel?.render(status) }
+        BotController.attach(automation)
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val packageName = event?.packageName?.toString() ?: return
+        if (packageName in config.facebookPackages) {
+            engine?.onScreenChanged()
+        }
+    }
 
-    override fun onInterrupt() = Unit
+    override fun onInterrupt() {
+        engine?.stop()
+    }
 
     /**
-     * Volume + confirme une seule demande lorsque le bouton « Ajouter » a été
-     * détecté. Volume - arrête immédiatement la navigation.
+     * Volume + confirme une seule demande détectée.
+     * Volume - reste un arrêt d'urgence physique.
      */
     override fun onKeyEvent(event: KeyEvent): Boolean {
         val current = engine ?: return false
@@ -51,9 +72,18 @@ class FriendAdderService : AccessibilityService(), ScreenGateway {
 
     override fun onUnbind(intent: Intent?): Boolean {
         engine?.stop()
+        BotController.floatingListener = null
         BotController.detach()
+        floatingPanel?.remove()
+        floatingPanel = null
         engine = null
         return super.onUnbind(intent)
+    }
+
+    override fun onDestroy() {
+        floatingPanel?.remove()
+        floatingPanel = null
+        super.onDestroy()
     }
 
     // -------------------------------------------------------- ScreenGateway
@@ -107,6 +137,6 @@ class FriendAdderService : AccessibilityService(), ScreenGateway {
     }
 
     private companion object {
-        const val MAX_ANCESTOR_HOPS = 6
+        const val MAX_ANCESTOR_HOPS = 8
     }
 }

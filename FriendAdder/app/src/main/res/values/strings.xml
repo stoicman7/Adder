@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Friend Adder</string>
-    <string name="service_description">Repère les boutons « Ajouter » et attend votre confirmation avant chaque demande.</string>
+    <string name="service_description">Repère les boutons « Ajouter », affiche une commande flottante et attend votre confirmation pour chaque demande.</string>
 
     <string name="btn_accessibility">Activer le service d’accessibilité</string>
     <string name="btn_start">Démarrer</string>
     <string name="btn_stop">Arrêter</string>
-    <string name="hint">Après « Démarrer », Facebook s’ouvre et la navigation défile automatiquement. Lorsqu’un bouton « Ajouter » est détecté, appuyez sur Volume + pour confirmer UNE seule demande. Volume − arrête immédiatement.</string>
-    <string name="stats">Demandes confirmées : %1$d · Fenêtres fermées : %2$d · Défilements : %3$d</string>
+    <string name="hint">Le panneau Eagle Assist reste visible au-dessus de Facebook. Il affiche les boutons détectés, les demandes confirmées, les fenêtres d’erreur et les défilements. « CONFIRM ONE » confirme une seule demande ; « STOP » arrête immédiatement.</string>
+    <string name="stats">Confirmées : %1$d · Fenêtres : %2$d · Défilements : %3$d</string>
 
     <string name="enable_service_first">Activez d’abord le service « Friend Adder » dans les réglages d’accessibilité.</string>
     <string name="facebook_not_found">Facebook n’est pas installé.</string>
@@ -16,7 +16,7 @@
     <string name="status_idle">Prêt</string>
     <string name="status_running">Navigation et défilement en cours</string>
     <string name="status_waiting_facebook">En pause : ouvrez Facebook</string>
-    <string name="status_waiting_confirmation">Bouton « Ajouter » détecté : Volume + pour confirmer une seule demande</string>
+    <string name="status_waiting_confirmation">Bouton « Ajouter » détecté : utilisez CONFIRM ONE dans le panneau flottant</string>
     <string name="stop_user">Arrêté</string>
     <string name="stop_add_limit">Arrêté : limite de clics atteinte</string>
     <string name="stop_failures">Arrêté : trop d’erreurs d’affilée (Facebook limite peut-être les ajouts)</string>

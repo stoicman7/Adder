@@ -10,7 +10,17 @@ class TextMatcher(labels: Labels) {
     private val errorFragments = labels.errorDialog.map(::normalize).filter { it.isNotEmpty() }
 
     // Les méthodes ci-dessous attendent un texte DÉJÀ normalisé.
-    fun isAddButton(normalized: String) = normalized in addButtons
+    fun isAddButton(normalized: String): Boolean {
+        if (normalized in addButtons) return true
+
+        // Facebook affiche parfois seulement « Ajouter » ou ajoute un petit complément.
+        return normalized == "ajouter" ||
+            normalized == "ajouter un ami" ||
+            normalized == "ajouter une amie" ||
+            normalized == "ajouter comme ami" ||
+            normalized == "ajouter comme amie"
+    }
+
     fun isOkButton(normalized: String) = normalized in okButtons
     fun isErrorText(normalized: String) = errorFragments.any { normalized.contains(it) }
 

@@ -4,8 +4,9 @@ package com.example.friendadder.core
 data class Labels(
     /** Libellés EXACTS (insensibles à la casse/accents) des boutons « Ajouter ». */
     val addButton: Set<String> = setOf(
-        "Ajouter", "Ajouter ami", "Ajouter en ami", "Ajouter comme ami", "Ajouter comme amie",
-        "Add friend", "Agregar", "Agregar a mis amigos",
+        "Ajouter", "Ajouter un ami", "Ajouter une amie",
+        "Ajouter ami", "Ajouter en ami", "Ajouter comme ami", "Ajouter comme amie",
+        "Add friend", "Add as friend", "Agregar", "Agregar a mis amigos",
         "إضافة صديق"
     ),
     /** Fragments de texte signalant la fenêtre « vous ne pouvez pas ajouter cette personne ». */
@@ -25,8 +26,8 @@ data class BotConfig(
     val facebookPackages: Set<String> = setOf("com.facebook.katana", "com.facebook.lite"),
 
     // Délais (ms) : tirés au hasard dans la plage pour un rythme non mécanique.
-    val startDelayMs: Long = 1_500L,
-    val idleDelayMs: Long = 1_500L,
+    val startDelayMs: Long = 1_000L,
+    val idleDelayMs: Long = 1_200L,
     val afterAddDelayMs: LongRange = 1_500L..2_500L,
     val afterDialogDelayMs: LongRange = 800L..1_400L,
     val afterScrollDelayMs: LongRange = 1_500L..2_500L,
