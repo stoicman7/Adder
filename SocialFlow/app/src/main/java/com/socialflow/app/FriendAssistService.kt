@@ -60,9 +60,21 @@ class FriendAssistService : AccessibilityService() {
         if (event == null) return
         val packageName = event.packageName?.toString() ?: return
 
-        if (!isFacebookPackage(packageName) || !armed) {
+        if (!armed) {
             removeOverlay()
-            if (!isFacebookPackage(packageName)) {
+            detectedCount = 0
+            failedAddDialogVisible = false
+            requestLimitDetected = false
+            return
+        }
+
+        // Accessibility events caused by the floating panel itself must not remove the panel.
+        if (packageName == this.packageName) return
+
+        if (!isFacebookPackage(packageName)) {
+            val stillOnFacebook = activeFacebookRoot() != null
+            if (!stillOnFacebook) {
+                removeOverlay()
                 detectedCount = 0
                 failedAddDialogVisible = false
             }
