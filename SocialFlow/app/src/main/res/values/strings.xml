@@ -1,0 +1,3 @@
+<resources>
+    <string name="eagle_accessibility_description">Shows a floating Eagle Assist panel over Facebook. It identifies visible Add Friend buttons and only performs one tap when you press Confirm One. Scrolling and dismissing an error notice each require a separate user press.</string>
+</resources>

@@ -1,26 +1,28 @@
-# SocialFlow for Android
+# Eagle Assist for Android
 
-A dark, black-and-crimson workspace for organizing profile review.
+A dark, black-and-crimson Facebook screen assistant with eagle branding.
 
-## Version 2.0
-- Fixed the zero-width content container that caused the blank main screen.
-- Reworked the desktop-style left navigation and page layout.
-- Dashboard with saved-profile and pending-review totals.
-- Manually add and edit Facebook profile links.
-- Duplicate URL detection and HTTPS/Facebook-domain validation.
-- Search the review queue and reviewed history.
-- Group profiles by source and filter the queue by source.
-- Open individual profiles in the browser or Facebook app.
-- Mark a profile reviewed, return it to the queue, or delete it.
-- Adjustable 1–30 second personal review interval.
-- Export a local JSON backup through Android's share menu.
-- Eagle launcher icon and matching in-app branding.
-- Local-only storage; no Facebook password or account connection.
+## Version 3.1
+- Floating Eagle Assist controls while Facebook or Facebook Lite is in the foreground.
+- Detects supported visible Add Friend labels in English, French and Arabic.
+- Each Add Friend tap requires an individual CONFIRM ONE press.
+- NEXT scrolls the current list once, only when pressed.
+- Detects common per-person add-failure dialogs and offers DISMISS NOTICE; the user must press this control to tap the dialog's OK button.
+- Detects common Facebook temporary-block and request-limit messages and locks request/scroll actions.
+- STOP disarms the assistant and removes its floating panel.
+- No credentials, profile database, batch requests, automatic timer, or unattended request loop.
+- Screen text is inspected locally on the device.
 
-## Deliberate scope
-Profiles are added manually. The app does not scrape group members or reaction lists, send friend requests automatically, or perform unattended Facebook actions. Every profile is opened and reviewed by the user.
+## Setup
+1. Install the APK.
+2. Open Eagle Assist and choose Enable Accessibility.
+3. In Android Settings, enable Eagle Assist.
+4. Return and press ARM ASSIST + OPEN FACEBOOK.
+5. Open a group member list or post reactions.
+6. Use CONFIRM ONE for one visible Add Friend button, NEXT for one scroll, and DISMISS NOTICE to acknowledge a detected per-person failure dialog.
+
+## Safety and limitations
+The tool does not bypass Facebook request limits or restrictions. When a limit is detected, request and scroll controls are locked. A tap reported as successful means Android accepted the accessibility click; it does not prove Facebook accepted the friend request. Always inspect Facebook's response.
 
 ## Build
-Open this folder in Android Studio (JDK 17, Android SDK 35), allow Gradle sync, then build the debug APK.
-
-Minimum Android version: Android 6.0 (API 23).
+JDK 17 and Android SDK 35. Build with Gradle 8.9 using the included GitHub Actions workflow.
