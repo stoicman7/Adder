@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Friend Adder</string>
+    <string name="service_description">Ajoute automatiquement les personnes de la liste des réactions d’un post ou des membres d’un groupe que vous avez ouverte : clique sur « Ajouter », fait défiler la liste et ferme les fenêtres d’erreur.</string>
+
+    <string name="tagline">Ciblé · Réactions &amp; Groupes</string>
+
+    <string name="stat_adds">Ajouts</string>
+    <string name="stat_failed">Échecs de clic</string>
+    <string name="stat_dialogs">Erreurs fermées</string>
+    <string name="stat_scrolls">Défilements</string>
+
+    <string name="btn_start">Démarrer</string>
+    <string name="btn_stop">Arrêter</string>
+    <string name="btn_accessibility">Activer le service d’accessibilité</string>
+
+    <string name="how_title">Mode ciblé</string>
+    <string name="how_1">Ouvrez la liste des <b>Réactions</b> d’un post, ou les <b>Membres</b> d’un groupe de votre choix.</string>
+    <string name="how_2">Appuyez sur Démarrer. Le bot n’agit que sur cet écran, jamais ailleurs.</string>
+    <string name="how_3">Il s’arrête seul en fin de liste. Volume bas = arrêt immédiat.</string>
+
+    <string name="enable_service_first">Activez d’abord le service « Friend Adder » dans les réglages d’accessibilité.</string>
+    <string name="facebook_not_found">Facebook n’est pas installé.</string>
+
+    <string name="status_disconnected">Service inactif</string>
+    <string name="hint_disconnected">Activez Friend Adder dans les réglages d’accessibilité.</string>
+    <string name="status_idle">Prêt</string>
+    <string name="hint_idle">Ouvrez une liste de réactions ou de membres, puis démarrez.</string>
+    <string name="status_running">En cours</string>
+    <string name="hint_running">Ajout automatique des personnes de cette liste.</string>
+    <string name="status_paused">En pause</string>
+    <string name="hint_waiting_facebook">Ouvrez Facebook pour reprendre.</string>
+    <string name="hint_wrong_screen">Revenez à la liste des réactions ou des membres : le bot ne touche à rien d’autre.</string>
+    <string name="status_stopped">Arrêté</string>
+    <string name="hint_stopped">Arrêt manuel.</string>
+    <string name="status_done">Fin de liste</string>
+    <string name="hint_done">Plus personne à ajouter ici. Choisissez un autre post ou groupe.</string>
+    <string name="status_limit">Limite atteinte</string>
+    <string name="hint_limit">Limite de clics par session atteinte.</string>
+    <string name="status_safety">Arrêt de sécurité</string>
+    <string name="hint_safety">Trop d’erreurs d’affilée : Facebook limite peut-être les invitations.</string>
+
+    <string name="panel_stats">%1$d ajouts · %2$d échecs</string>
+    <string name="panel_start">Start</string>
+    <string name="panel_stop">Stop</string>
+</resources>
